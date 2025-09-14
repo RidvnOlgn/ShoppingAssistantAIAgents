@@ -4,6 +4,8 @@ from bs4 import BeautifulSoup
 import json
 import re
 import os
+from translator import translate_ingredient_list
+from deep_translator import GoogleTranslator
 
 CACHE_FILE = "recipe_cache.json"
 
@@ -115,35 +117,51 @@ def _find_ingredients_from_url(url: str) -> list[str] | None:
 def get_ingredients_for_dish(dish_name: str) -> str:
     """
     Searches the internet for ingredients for a given dish name.
+    Translates the dish name and ingredients to English before caching.
     Caches only successful results for future use.
     """
+    # Translate the dish name to English for caching and display
+    try:
+        # Use a new variable for the translated name
+        translated_dish_name = GoogleTranslator(source='auto', target='en').translate(dish_name.strip())
+        if not translated_dish_name:
+            translated_dish_name = dish_name.strip() # Fallback to original if translation is empty
+    except Exception as e:
+        print(f"Warning: Could not translate dish name '{dish_name}': {e}. Using original name.")
+        translated_dish_name = dish_name.strip()
+
     cache = _load_cache()
-    cache_key = dish_name.strip().lower()
+    # Use the translated name for the cache key
+    cache_key = translated_dish_name.lower()
 
     if cache_key in cache:
-        print(f"Info: '{dish_name}' found in cache.")
+        print(f"Info: '{translated_dish_name}' found in cache.")
         return cache[cache_key]
 
-    print(f"Info: Searching internet for '{dish_name}' (not found in cache)...")
+    # Search using the original dish name for better accuracy
+    print(f"Info: Searching internet for '{dish_name}' (as '{translated_dish_name}') (not found in cache)...")
 
     try:
         with DDGS() as ddgs:
             search_query = f'"{dish_name}" ingredients recipe'
             results = list(ddgs.text(search_query, max_results=5))
             if not results:
-                return f"No recipe found on the internet for '{dish_name}'."
+                return f"No recipe found on the internet for '{translated_dish_name}'."
 
             for result in results:
                 ingredients = _find_ingredients_from_url(result['href'])
                 if ingredients:
-                    formatted_ingredients = "\n".join([f"- {item}" for item in ingredients])
-                    success_result = f"Possible ingredients found for '{dish_name}':\n{formatted_ingredients}"
+                    # Translate ingredients to English before formatting and caching
+                    translated_ingredients = translate_ingredient_list(ingredients)
+                    formatted_ingredients = "\n".join([f"- {item}" for item in translated_ingredients])
+                    # Use the translated dish name in the success message
+                    success_result = f"Possible ingredients found for '{translated_dish_name}':\n{formatted_ingredients}"
                     # Save the successful result to cache and return
                     cache[cache_key] = success_result
                     _save_cache(cache)
                     return success_result
 
             # If the loop finishes and no result is found from any site
-            return f"A search was performed for '{dish_name}', but an ingredient list could not be clearly found. Please try a more specific dish name."
+            return f"A search was performed for '{translated_dish_name}', but an ingredient list could not be clearly found. Please try a more specific dish name."
     except Exception as e:
         return f"An error occurred with the search service: {e}"
