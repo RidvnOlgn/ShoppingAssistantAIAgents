@@ -104,6 +104,28 @@ class IngredientExtractorAgent(Agent):
             print(f"An error occurred during ingredient extraction: {e}")
             return []
 
+class ShoppingListConsolidatorAgent(Agent):
+    """An agent that consolidates multiple ingredient lists into a single, unique shopping list."""
+    def run(self, all_ingredients: dict[str, list[str]]) -> list[str]:
+        """
+        Takes a dictionary of dish-to-ingredient-lists and returns a single, alphabetized, unique list.
+        It performs basic normalization (lowercase, strip) to merge similar items.
+        """
+        consolidated_set = set()
+        for dish, ingredients in all_ingredients.items():
+            # Skip if the list contains an error message or is empty
+            if not ingredients or ("error occurred" in ingredients[0] or "not be clearly found" in ingredients[0] or "No recipe found" in ingredients[0]):
+                continue
+            
+            for ingredient in ingredients:
+                # Basic normalization
+                normalized_ingredient = ingredient.lower().strip()
+                if normalized_ingredient:
+                    consolidated_set.add(normalized_ingredient)
+        
+        # Return a sorted list for consistent and readable output
+        return sorted(list(consolidated_set))
+
 class ManagerAgent(Agent):
     """
     The manager agent that orchestrates the workflow by coordinating other agents.
