@@ -9,7 +9,7 @@ def main():
     print("-" * 30)
 
     while True:
-        user_input = input("What would you like to cook? (e.g., 'I want to make tomato soup and pasta') ('exit' to quit): ")
+        user_input = input("What would you like to cook? (e.g., 'I want to make tomato soup and grilled meatballs') ('exit' to quit): ")
         if user_input.lower() == 'exit':
             print("Goodbye!")
             break
@@ -23,10 +23,21 @@ def main():
             print("-" * 30)
             continue
 
-        # The manager returns all responses at once. We just need to print them.
+        # The manager now returns a list of clean ingredients for each dish.
         for dish_name in dish_names:
-            # The responses dictionary contains the result for each dish.
-            print(responses.get(dish_name, f"No response found for {dish_name}."))
+            ingredient_list = responses.get(dish_name)
+            
+            # Check if the result is a valid list and not empty
+            if ingredient_list:
+                # Check if the first item is an error message from a previous step
+                if "error occurred" in ingredient_list[0] or "not be clearly found" in ingredient_list[0] or "No recipe found" in ingredient_list[0]:
+                    print(f"For '{dish_name}': {ingredient_list[0]}")
+                else:
+                    print(f"Shopping list for '{dish_name}':")
+                    for item in ingredient_list:
+                        print(f"- {item}")
+            else:
+                print(f"Could not extract a shopping list for '{dish_name}'.")
             print("-" * 30)
 
 if __name__ == "__main__":
