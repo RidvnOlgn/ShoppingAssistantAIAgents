@@ -1,37 +1,21 @@
 from tools import get_ingredients_for_dish
 import ollama
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-class RecipeAgent:
+class Agent:
     """
-    An agent designed to provide information about food recipes.
+    Base class for all agents. It's a good practice for organization and potential shared functionality.
     """
-    def __init__(self):
+    def __init__(self, model='gemma3'):
         """
-        Initializes the agent and checks for the Ollama service.
+        Initializes the agent with a specific model.
         """
-        self.model = 'gemma3' # You can change this to your preferred Ollama model, e.g., 'gemma'
-        try:
-            # Check if the Ollama service is running
-            ollama.list()
-        except ollama.ResponseError as e:
-            print("Error: Could not connect to the Ollama service.")
-            print(f"Please make sure Ollama is running. Details: {e.error}")
-            sys.exit(1) # Exit if Ollama is not available
+        self.model = model
 
-        print("Recipe Assistant started. How can I help you?")
-
-    def get_ingredients(self, dish_name: str) -> str:
-        """
-        Runs the relevant tool to find the ingredients for the user's requested dish.
-        """
-        print(f"Searching for ingredients for '{dish_name}'...")
-        # The agent decides which tool to use here.
-        # In this simple example, we directly call the ingredient finding tool.
-        result = get_ingredients_for_dish(dish_name)
-        return result
-    
-    def extract_dish_names(self, text: str) -> list[str]:
+class DishIdentifierAgent(Agent):
+    """An agent that specializes in identifying dish names from text using an LLM."""
+    def run(self, text: str) -> list[str]:
         """
         Uses an Ollama-based LLM to extract dish names from natural language text.
         """
@@ -68,3 +52,55 @@ class RecipeAgent:
         except Exception as e:
             print(f"An error occurred while extracting dish names: {e}")
             return []
+
+class RecipeScoutAgent(Agent):
+    """An agent that finds ingredients for a given dish by using tools."""
+    def run(self, dish_name: str) -> str:
+        """
+        Runs the relevant tool to find the ingredients for the user's requested dish.
+        """
+        print(f"Searching for ingredients for '{dish_name}'...")
+        # This agent's responsibility is to call the right tool.
+        # For now, it directly calls the ingredient finding tool.
+        result = get_ingredients_for_dish(dish_name)
+        return result
+
+class ManagerAgent(Agent):
+    """
+    The manager agent that orchestrates the workflow by coordinating other agents.
+    """
+    def __init__(self, model='gemma3'):
+        super().__init__(model)
+        try:
+            ollama.list() # Check for Ollama service
+        except ollama.ResponseError as e:
+            print(f"Error: Could not connect to the Ollama service. Details: {e.error}")
+            sys.exit(1)
+
+        # The manager holds instances of the specialized agents it needs to delegate tasks to.
+        self.dish_identifier = DishIdentifierAgent(model=self.model)
+        self.recipe_scout = RecipeScoutAgent(model=self.model)
+        print("Recipe Assistant started. How can I help you?")
+
+    def run_workflow(self, user_input: str) -> tuple[list[str], dict[str, str]]:
+        """
+        Runs the full workflow: identify dishes, then find ingredients for each in parallel.
+        """
+        print("Understanding your request...")
+        dish_names = self.dish_identifier.run(user_input)
+
+        if not dish_names:
+            return [], {}
+
+        print(f"Found dishes: {', '.join(dish_names)}. Fetching ingredients...")
+        results = {}
+        # Use a thread pool to fetch ingredients in parallel, a key benefit of this structure.
+        with ThreadPoolExecutor(max_workers=len(dish_names) or 1) as executor:
+            future_to_dish = {executor.submit(self.recipe_scout.run, name): name for name in dish_names}
+            for future in as_completed(future_to_dish):
+                dish_name = future_to_dish[future]
+                try:
+                    results[dish_name] = future.result()
+                except Exception as exc:
+                    results[dish_name] = f"An error occurred while fetching ingredients for '{dish_name}': {exc}"
+        return dish_names, results

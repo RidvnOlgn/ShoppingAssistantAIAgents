@@ -1,11 +1,11 @@
-from agent import RecipeAgent
+from agent import ManagerAgent
 
 def main():
     """
     Main entry point of the application. Interacts with the user.
     """
-    # Create our agent
-    agent = RecipeAgent()
+    # Create our manager agent, which will coordinate the work.
+    manager = ManagerAgent()
     print("-" * 30)
 
     while True:
@@ -14,20 +14,19 @@ def main():
             print("Goodbye!")
             break
 
-        # Use the agent to extract dish names from the natural language input
-        print("Understanding your request...")
-        dish_names = agent.extract_dish_names(user_input)
+        # Use the manager agent to run the entire workflow.
+        # It handles delegation to other specialized agents.
+        dish_names, responses = manager.run_workflow(user_input)
 
         if not dish_names:
             print("Sorry, I couldn't find any dish names in your request. Please try again.")
             print("-" * 30)
             continue
 
-        print(f"Found dishes: {', '.join(dish_names)}. Fetching ingredients...")
-
+        # The manager returns all responses at once. We just need to print them.
         for dish_name in dish_names:
-            response = agent.get_ingredients(dish_name)
-            print(response)
+            # The responses dictionary contains the result for each dish.
+            print(responses.get(dish_name, f"No response found for {dish_name}."))
             print("-" * 30)
 
 if __name__ == "__main__":

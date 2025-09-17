@@ -30,6 +30,7 @@ def _save_cache(cache: dict):
             json.dump(cache, f, ensure_ascii=False, indent=4)
     except IOError as e:
         print(f"Warning: Could not write to cache file: {e}")
+        
 def _find_ingredients_from_url(url: str) -> list[str] | None:
     """
     Tries to scrape the ingredient list from a given URL.
