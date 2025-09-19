@@ -1,4 +1,5 @@
 from agent import OrchestratorAgent, ShoppingListConsolidatorAgent
+from deep_translator import GoogleTranslator
 
 def print_shopping_list(title: str, shopping_list: list[str]):
     """Helper function to print the shopping list neatly."""
@@ -12,6 +13,21 @@ def print_shopping_list(title: str, shopping_list: list[str]):
             # Capitalize the first letter for better readability
             print(f"{i}. {item.capitalize()}")
     print("-" * 40)
+
+def translate_item_list(items: list[str]) -> list[str]:
+    """Translates a list of item strings to English and normalizes them."""
+    if not items:
+        return []
+    try:
+        # deep-translator can handle a list of strings directly
+        # Using translate_batch is more efficient for multiple items.
+        translated_items = GoogleTranslator(source='auto', target='en').translate_batch(items)
+        # The result might contain None for failed translations, so filter them and normalize.
+        return [item.lower().strip() for item in translated_items if item]
+    except Exception as e:
+        print(f"\nWarning: Could not translate items: {e}. Using original items.")
+        # Fallback to original items, but still normalize them.
+        return [item.lower().strip() for item in items]
 
 def main():
     """
@@ -69,19 +85,23 @@ def main():
             print_shopping_list("🛒 Your Consolidated Shopping List 🛒", shopping_list)
 
             # Ask to remove items
-            to_remove_input = input("Enter items to REMOVE (comma-separated, e.g., 'onion, garlic') or press Enter to skip: ").lower().strip()
+            to_remove_input = input("Enter items to REMOVE (comma-separated, e.g., 'onion, garlic') or press Enter to skip: ").strip()
             if to_remove_input:
-                items_to_remove = {item.strip() for item in to_remove_input.split(',')}
-                shopping_list = [item for item in shopping_list if item not in items_to_remove]
+                items_to_remove_raw = [item.strip() for item in to_remove_input.split(',')]
+                # Translate items before removing
+                translated_items_to_remove = set(translate_item_list(items_to_remove_raw))
+                shopping_list = [item for item in shopping_list if item not in translated_items_to_remove]
 
             # Ask to add items
-            to_add_input = input("Enter items to ADD (comma-separated, e.g., 'olive oil, pepper') or press Enter to skip: ").lower().strip()
+            to_add_input = input("Enter items to ADD (comma-separated, e.g., 'olive oil, pepper') or press Enter to skip: ").strip()
             if to_add_input:
-                items_to_add = {item.strip() for item in to_add_input.split(',') if item.strip()}
-                for item in items_to_add:
+                items_to_add_raw = [item.strip() for item in to_add_input.split(',') if item.strip()]
+                # Translate items before adding
+                translated_items_to_add = translate_item_list(items_to_add_raw)
+                for item in translated_items_to_add:
                     if item not in shopping_list:
                         shopping_list.append(item)
-                shopping_list.sort() # Re-sort after adding
+                shopping_list.sort()  # Re-sort after adding
 
             # Ask if user is done
             done_input = input("Are you finished with your list? (yes/no): ").lower().strip()
