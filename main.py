@@ -1,4 +1,4 @@
-from agent import ManagerAgent, ShoppingListConsolidatorAgent
+from agent import OrchestratorAgent, ShoppingListConsolidatorAgent
 
 def print_shopping_list(title: str, shopping_list: list[str]):
     """Helper function to print the shopping list neatly."""
@@ -17,8 +17,8 @@ def main():
     """
     Main entry point of the application. Interacts with the user.
     """
-    # Create our manager agent, which will coordinate the work.
-    manager = ManagerAgent()
+    # Create our orchestrator agent, which will coordinate the work using LangChain.
+    orchestrator = OrchestratorAgent()
     consolidator = ShoppingListConsolidatorAgent()
     print("-" * 30)
 
@@ -28,9 +28,9 @@ def main():
             print("Goodbye!")
             break
 
-        # Use the manager agent to run the entire workflow.
+        # Use the orchestrator agent to run the entire workflow.
         # It handles delegation to other specialized agents.
-        dish_names, responses = manager.run_workflow(user_input)
+        dish_names, responses = orchestrator.run(user_input)
 
         if not dish_names:
             print("Sorry, I couldn't find any dish names in your request. Please try again.")

@@ -1,30 +1,4 @@
 {
-    "tomato soup": [
-        {
-            "quantity": "",
-            "name": "5 mature tomatoes"
-        },
-        {
-            "quantity": "",
-            "name": "2 tablespoons of butter"
-        },
-        {
-            "quantity": "",
-            "name": "3 tablespoons flour"
-        },
-        {
-            "quantity": "",
-            "name": "1 liter hot water"
-        },
-        {
-            "quantity": "",
-            "name": "1 cup of milk"
-        },
-        {
-            "quantity": "",
-            "name": "Grated fresh cheddar"
-        }
-    ],
     "grilled meatballs": [
         {
             "quantity": "",
@@ -137,6 +111,32 @@
         {
             "quantity": "",
             "name": "spoonfuls of Turkish yogurt, or use full-fat Greek yogurt"
+        }
+    ],
+    "tomato soup": [
+        {
+            "quantity": "5",
+            "name": "mature tomatoes"
+        },
+        {
+            "quantity": "2",
+            "name": "tablespoons of butter"
+        },
+        {
+            "quantity": "3",
+            "name": "tablespoons flour"
+        },
+        {
+            "quantity": "1",
+            "name": "liter hot water"
+        },
+        {
+            "quantity": "1",
+            "name": "cup of milk"
+        },
+        {
+            "quantity": "",
+            "name": "Grated fresh cheddar"
         }
     ]
 }

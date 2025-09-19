@@ -6,7 +6,11 @@ import re
 import os
 from translator import translate_ingredient_list
 from deep_translator import GoogleTranslator
-import ollama
+from langchain.tools import tool
+from langchain_ollama import ChatOllama
+from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from pydantic import BaseModel, Field
 
 CACHE_FILE = "recipe_cache.json"
 
@@ -116,53 +120,55 @@ def _find_ingredients_from_url(url: str) -> list[str] | None:
         print(f"Warning: An error occurred while processing page '{url}': {e}")
         return None
 
-def _parse_ingredients_structured(ingredient_strings: list[str]) -> list[dict]:
+def _parse_ingredients_structured(ingredient_strings: list[str], model: str = 'gemma3') -> list[dict]:
     """
-    Uses an LLM to parse a list of ingredient strings into structured data (quantity, name).
-    """
-    # Create a string representation of the list for the prompt
-    prompt_list = "\n".join(f"- {s}" for s in ingredient_strings)
-
-    prompt = f"""
-    You are an expert data parser. Your task is to parse each line of ingredient text into a structured JSON object containing 'quantity' and 'name'.
-
-    Follow these rules precisely:
-    1. For each line, separate the quantity/measurement from the ingredient name.
-    2. The 'quantity' field should include the number and the unit (e.g., "100 g", "2-3 tbsp", "1 (28-ounce) can"). If there is no quantity, this field should be an empty string.
-    3. The 'name' field should contain the rest of the string, which is the core ingredient name, including any preparation notes (e.g., "finely chopped").
-    4. Return the result as a JSON array of objects. Do not return any other text, just the JSON.
-
-    Example Input:
-    - 1 (28-ounce) can whole San Marzano tomatoes
-    - Fresh basil leaves, for garnish
-
-    Example Output:
-    [
-        {{"quantity": "1 (28-ounce) can", "name": "whole San Marzano tomatoes"}},
-        {{"quantity": "", "name": "Fresh basil leaves, for garnish"}}
-    ]
-
-    Ingredient text to process:
-    {prompt_list}
-
-    JSON Output:
+    Uses a LangChain chain with an LLM to parse a list of ingredient strings into structured data.
     """
     try:
-        # Assuming ollama is configured and available. Using a default model.
-        response = ollama.generate(model='gemma3', prompt=prompt, stream=False, format='json')
-        parsed_json = json.loads(response['response'])
+        # Define the desired structure for the output.
+        class Ingredient(BaseModel):
+            quantity: str = Field(description="The quantity and unit, e.g., '100 g', '2-3 tbsp', '1'. Empty if not present.")
+            name: str = Field(description="The core ingredient name, including preparation notes, e.g., 'whole San Marzano tomatoes', 'Fresh basil leaves, for garnish'.")
+
+        class IngredientList(BaseModel):
+            ingredients: list[Ingredient]
+
+        # Set up a parser + inject instructions into the prompt template.
+        parser = JsonOutputParser(pydantic_object=IngredientList)
+
+        prompt = ChatPromptTemplate.from_template(
+            """You are an expert data parser. Your task is to parse each line of ingredient text into a structured JSON object.
+Follow these rules precisely:
+1. For each line, separate the quantity/measurement from the ingredient name.
+2. The 'quantity' field should include the number and the unit (e.g., "100 g", "2-3 tbsp", "1 (28-ounce) can"). If there is no quantity, this field should be an empty string.
+3. The 'name' field should contain the rest of the string, which is the core ingredient name, including any preparation notes (e.g., "finely chopped").
+4. Return the result as a JSON object with a single key "ingredients" which contains a list of objects. Do not return any other text, just the JSON.
+
+{format_instructions}
+
+Ingredient text to process:
+{ingredient_list}
+"""
+        )
+
+        llm = ChatOllama(model=model, format="json")
+        chain = prompt | llm | parser
+
+        prompt_list = "\n".join(f"- {s}" for s in ingredient_strings)
         
-        # Basic validation and ensuring 'quantity' key exists
-        if isinstance(parsed_json, list) and all(isinstance(item, dict) and 'name' in item for item in parsed_json):
-            for item in parsed_json:
-                item.setdefault('quantity', '')
-            return parsed_json
-        else:
-            raise ValueError("LLM parsing did not return the expected list of dicts.")
+        response = chain.invoke({
+            "ingredient_list": prompt_list,
+            "format_instructions": parser.get_format_instructions()
+        })
+        
+        # The parser returns a dict {'ingredients': [...]}, we want the list.
+        return response.get('ingredients', [])
+
     except Exception as e:
         print(f"Warning: An error occurred during LLM ingredient parsing: {e}. Falling back to name-only structure.")
         return [{'quantity': '', 'name': s} for s in ingredient_strings]
 
+@tool
 def get_ingredients_for_dish(dish_name: str) -> str:
     """
     Searches the internet for ingredients for a given dish name.
