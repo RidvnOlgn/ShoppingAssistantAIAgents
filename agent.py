@@ -22,29 +22,6 @@ Strictly follow these rules:
     )
     return prompt_template | llm | StrOutputParser()
 
-def create_ingredient_extractor_chain(llm):
-    """Creates a LangChain chain to extract clean ingredient names from a block of text."""
-    prompt_template = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """You are a data extraction specialist. Your task is to extract only the core ingredient names from the provided text.
-Follow these rules precisely:
-1. Read the text which contains a list of ingredients.
-2. For each line, identify the main food item.
-3. Ignore quantities (e.g., "100 g", "2-3 tbsp", "1 cup").
-4. Ignore preparation instructions (e.g., "finely chopped", "diced", "skin off").
-5. Ignore packaging details (e.g., "(28-ounce) can").
-6. Return only the clean ingredient names as a comma-separated list. For example, for "- 1 (28-ounce) can whole San Marzano tomatoes", you should extract "San Marzano tomatoes". For "- 100 g Carrot", you should extract "Carrot".""",
-            ),
-            (
-                "human",
-                'Text to process:\n"{ingredient_text}"\n\nComma-separated ingredient names:',
-            ),
-        ]
-    )
-    return prompt_template | llm | StrOutputParser()
-
 class ShoppingListConsolidatorAgent:
     """An agent that consolidates multiple ingredient lists into a single, unique shopping list."""
     def run(self, all_ingredients: dict[str, list[str]]) -> list[str]:
@@ -82,17 +59,15 @@ class OrchestratorAgent:
 
         # The orchestrator holds instances of the specialized chains it needs.
         self.dish_identifier_chain = create_dish_identifier_chain(self.llm)
-        self.ingredient_extractor_chain = create_ingredient_extractor_chain(self.llm)
         print("Recipe Assistant (LangChain Edition) started. How can I help you?")
 
     def run(self, user_input: str) -> tuple[list[str], dict[str, list[str]]]:
         """
         Runs the full workflow using LangChain:
         1. Identify dishes from user input.
-        2. In parallel, for each dish:
-           a. Find ingredients using the `get_ingredients_for_dish` tool.
-           b. Extract clean ingredient names from the tool's output.
-        3. Return the identified dishes and the structured results.
+        2. For each dish, use the `get_ingredients_for_dish` tool to find,
+           scrape, and clean a list of ingredients.
+        3. Return the identified dishes and a dictionary of results.
         """
         print("Understanding your request...")
         # 1. Identify dishes
@@ -108,28 +83,19 @@ class OrchestratorAgent:
         print(f"Found dishes: {', '.join(dish_names)}. Fetching ingredients and creating shopping lists...")
         
         results = {}
-        # Although LCEL supports parallel execution, a simple loop with individual invokes
-        # gives us clearer error handling per dish, similar to the original ThreadPoolExecutor logic.
+        # For each dish, invoke the tool which now handles the entire process
+        # of finding and cleaning ingredients.
         for dish_name in dish_names:
             try:
-                # The tool's output (raw text)
-                raw_text = get_ingredients_for_dish.invoke(dish_name)
-                
-                # Check for errors from the tool
-                if "error occurred" in raw_text or "not be clearly found" in raw_text or "No recipe found" in raw_text:
-                    results[dish_name] = [raw_text] # Pass error as a list item
-                    continue
-
-                # The extractor chain's output (comma-separated string)
-                extracted_str = self.ingredient_extractor_chain.invoke({"ingredient_text": raw_text})
-                
-                # Convert to list
-                clean_ingredients = [ing.strip() for ing in extracted_str.split(',') if ing.strip()]
+                # The tool now returns a clean list of ingredients directly.
+                clean_ingredients = get_ingredients_for_dish.invoke(dish_name)
                 results[dish_name] = clean_ingredients
 
             except Exception as exc:
-                error_message = f"An error occurred while processing '{dish_name}': {exc}"
-                print(error_message)
+                # If the tool raises an exception (e.g., recipe not found),
+                # we catch it and store the error message.
+                error_message = str(exc)
+                print(f"An error occurred while processing '{dish_name}': {error_message}")
                 results[dish_name] = [error_message]
 
         return dish_names, results

@@ -8,11 +8,39 @@ from translator import translate_ingredient_list
 from deep_translator import GoogleTranslator
 from langchain.tools import tool
 from langchain_ollama import ChatOllama
-from langchain_core.output_parsers import JsonOutputParser
+from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
 
 CACHE_FILE = "recipe_cache.json"
+
+# --- Global Setup for Efficiency ---
+# Create LLM instances and chains once to be reused by tools.
+# This is more efficient than creating them on every tool call.
+_LLM_TEXT_PARSER = ChatOllama(model='gemma3')
+
+def _get_ingredient_extractor_chain():
+    """Creates a LangChain chain to extract clean ingredient names from a block of text."""
+    prompt_template = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """You are a data extraction specialist. Your task is to extract only the core ingredient names from the provided text.
+Follow these rules precisely:
+1. Read the text which contains a list of ingredients.
+2. For each line, identify the main food item.
+3. Ignore quantities (e.g., "100 g", "2-3 tbsp", "1 cup").
+4. Ignore preparation instructions (e.g., "finely chopped", "diced", "skin off").
+5. Ignore packaging details (e.g., "(28-ounce) can").
+6. Return only the clean ingredient names as a comma-separated list. For example, for "- 1 (28-ounce) can whole San Marzano tomatoes", you should extract "San Marzano tomatoes". For "- 100 g Carrot", you should extract "Carrot".""",
+            ),
+            ("human", 'Text to process:\n"{ingredient_text}"\n\nComma-separated ingredient names:'),
+        ]
+    )
+    return prompt_template | _LLM_TEXT_PARSER | StrOutputParser()
+
+_INGREDIENT_EXTRACTOR_CHAIN = _get_ingredient_extractor_chain()
+# --- End Global Setup ---
 
 def _load_cache() -> dict:
     """Loads the cache file."""
@@ -120,99 +148,36 @@ def _find_ingredients_from_url(url: str) -> list[str] | None:
         print(f"Warning: An error occurred while processing page '{url}': {e}")
         return None
 
-def _parse_ingredients_structured(ingredient_strings: list[str], model: str = 'gemma3') -> list[dict]:
-    """
-    Uses a LangChain chain with an LLM to parse a list of ingredient strings into structured data.
-    """
-    try:
-        # Define the desired structure for the output.
-        class Ingredient(BaseModel):
-            quantity: str = Field(description="The quantity and unit, e.g., '100 g', '2-3 tbsp', '1'. Empty if not present.")
-            name: str = Field(description="The core ingredient name, including preparation notes, e.g., 'whole San Marzano tomatoes', 'Fresh basil leaves, for garnish'.")
-
-        class IngredientList(BaseModel):
-            ingredients: list[Ingredient]
-
-        # Set up a parser + inject instructions into the prompt template.
-        parser = JsonOutputParser(pydantic_object=IngredientList)
-
-        prompt = ChatPromptTemplate.from_template(
-            """You are an expert data parser. Your task is to parse each line of ingredient text into a structured JSON object.
-Follow these rules precisely:
-1. For each line, separate the quantity/measurement from the ingredient name.
-2. The 'quantity' field should include the number and the unit (e.g., "100 g", "2-3 tbsp", "1 (28-ounce) can"). If there is no quantity, this field should be an empty string.
-3. The 'name' field should contain the rest of the string, which is the core ingredient name, including any preparation notes (e.g., "finely chopped").
-4. Return the result as a JSON object with a single key "ingredients" which contains a list of objects. Do not return any other text, just the JSON.
-
-{format_instructions}
-
-Ingredient text to process:
-{ingredient_list}
-"""
-        )
-
-        llm = ChatOllama(model=model, format="json")
-        chain = prompt | llm | parser
-
-        prompt_list = "\n".join(f"- {s}" for s in ingredient_strings)
-        
-        response = chain.invoke({
-            "ingredient_list": prompt_list,
-            "format_instructions": parser.get_format_instructions()
-        })
-        
-        # The parser returns a dict {'ingredients': [...]}, we want the list.
-        return response.get('ingredients', [])
-
-    except Exception as e:
-        print(f"Warning: An error occurred during LLM ingredient parsing: {e}. Falling back to name-only structure.")
-        return [{'quantity': '', 'name': s} for s in ingredient_strings]
-
 @tool
-def get_ingredients_for_dish(dish_name: str) -> str:
+def get_ingredients_for_dish(dish_name: str) -> list[str]:
     """
-    Searches the internet for ingredients for a given dish name.
-    Translates the dish name and ingredients to English before caching.
-    Caches only successful results for future use.
+    Searches the internet for ingredients for a given dish name, returning a clean list.
+    It translates the dish name for caching and searches for recipes. If found,
+    it scrapes, translates, and cleans the ingredient list using an LLM.
+    Results are cached.
+    Raises ValueError if no recipe can be found.
     """
-    # Translate the dish name to English for caching and display
     try:
-        # Use a new variable for the translated name
         translated_dish_name = GoogleTranslator(source='auto', target='en').translate(dish_name.strip())
         if not translated_dish_name:
-            translated_dish_name = dish_name.strip() # Fallback to original if translation is empty
+            translated_dish_name = dish_name.strip()
     except Exception as e:
         print(f"Warning: Could not translate dish name '{dish_name}': {e}. Using original name.")
         translated_dish_name = dish_name.strip()
 
     cache = _load_cache()
-    # Use the translated name for the cache key
     cache_key = translated_dish_name.lower()
 
     if cache_key in cache:
         print(f"Info: '{translated_dish_name}' found in cache.")
+        # The cache now directly stores the clean list of strings.
         cached_data = cache[cache_key]
-
-        # Handle both new structured format (list of dicts) and old format (string)
         if isinstance(cached_data, list):
-            # New format. Reconstruct the string for the agent chain.
-            reconstructed_ingredients = []
-            for item in cached_data:
-                # Rebuild the line from quantity and name
-                full_line = f"{item.get('quantity', '')} {item.get('name', '')}".strip()
-                reconstructed_ingredients.append(full_line)
-            
-            formatted_ingredients = "\n".join([f"- {item}" for item in reconstructed_ingredients])
-            return f"Possible ingredients found for '{translated_dish_name}':\n{formatted_ingredients}"
-        
-        elif isinstance(cached_data, str):
-            # Old format, just return it. It will be updated on the next non-cached run.
             return cached_data
-        
-        # If format is unknown, treat as a cache miss
-        print(f"Warning: Unknown cache format for '{translated_dish_name}'. Refetching.")
+        else:
+            # If the cache has an old format, ignore it and refetch.
+            print(f"Warning: Outdated cache format for '{translated_dish_name}'. Refetching.")
 
-    # Search using the original dish name for better accuracy
     print(f"Info: Searching internet for '{dish_name}' (as '{translated_dish_name}') (not found in cache)...")
 
     try:
@@ -220,27 +185,33 @@ def get_ingredients_for_dish(dish_name: str) -> str:
             search_query = f'"{dish_name}" ingredients recipe'
             results = list(ddgs.text(search_query, max_results=5))
             if not results:
-                return f"No recipe found on the internet for '{translated_dish_name}'."
+                raise ValueError(f"No recipe found on the internet for '{translated_dish_name}'.")
 
             for result in results:
-                ingredients = _find_ingredients_from_url(result['href'])
-                if ingredients:
-                    # Translate ingredients to English before formatting and caching
-                    translated_ingredients = translate_ingredient_list(ingredients)
+                raw_ingredients = _find_ingredients_from_url(result['href'])
+                if raw_ingredients:
+                    # 1. Translate the raw list
+                    translated_ingredients = translate_ingredient_list(raw_ingredients)
                     
-                    # Parse the raw ingredient list into structured data
-                    structured_ingredients = _parse_ingredients_structured(translated_ingredients)
+                    # 2. Clean the translated list using the LLM chain
+                    ingredient_text_block = "\n".join(translated_ingredients)
+                    extracted_str = _INGREDIENT_EXTRACTOR_CHAIN.invoke({"ingredient_text": ingredient_text_block})
+                    
+                    clean_ingredients = [ing.strip() for ing in extracted_str.split(',') if ing.strip()]
+                    
+                    if not clean_ingredients:
+                        # If the extractor returns nothing, try the next URL
+                        continue
 
-                    # Save the new structured format to the cache
-                    cache[cache_key] = structured_ingredients
+                    # 3. Save the clean list to cache and return
+                    cache[cache_key] = clean_ingredients
                     _save_cache(cache)
-
-                    # For backward compatibility, reconstruct the original string format to return to the agent.
-                    formatted_ingredients = "\n".join([f"- {item}" for item in translated_ingredients])
-                    success_result = f"Possible ingredients found for '{translated_dish_name}':\n{formatted_ingredients}"
-                    return success_result
+                    
+                    print(f"Success: Found and processed ingredients for '{translated_dish_name}'.")
+                    return clean_ingredients
 
             # If the loop finishes and no result is found from any site
-            return f"A search was performed for '{translated_dish_name}', but an ingredient list could not be clearly found. Please try a more specific dish name."
+            raise ValueError(f"A search was performed for '{translated_dish_name}', but an ingredient list could not be clearly found.")
     except Exception as e:
-        return f"An error occurred with the search service: {e}"
+        # Re-raise exceptions to be caught by the orchestrator
+        raise e

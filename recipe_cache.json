@@ -1,142 +1,38 @@
 {
-    "grilled meatballs": [
-        {
-            "quantity": "",
-            "name": "1 cup Natural yoghurt"
-        },
-        {
-            "quantity": "",
-            "name": "1 clove garlic"
-        },
-        {
-            "quantity": "",
-            "name": "½ TSP dried mint"
-        },
-        {
-            "quantity": "",
-            "name": "500 g minced lamb ((minimum of 20% fat content))"
-        },
-        {
-            "quantity": "",
-            "name": "1 large onion ((grated))"
-        },
-        {
-            "quantity": "",
-            "name": "2 cloves garlic ((minced))"
-        },
-        {
-            "quantity": "",
-            "name": "1 medium egg"
-        },
-        {
-            "quantity": "",
-            "name": "30 g breadcrumbs"
-        },
-        {
-            "quantity": "",
-            "name": "1 TSP salt"
-        },
-        {
-            "quantity": "",
-            "name": "½ TSP freshly ground black pepper"
-        },
-        {
-            "quantity": "",
-            "name": "½ tsp peppers"
-        },
-        {
-            "quantity": "",
-            "name": "½ TSP flaked chilli (pul biber)"
-        },
-        {
-            "quantity": "",
-            "name": "½ TSP coriander powder"
-        },
-        {
-            "quantity": "",
-            "name": "2 tbsp chopped parsley"
-        }
-    ],
-    "chips": [
-        {
-            "quantity": "",
-            "name": "4 medium potatoes"
-        },
-        {
-            "quantity": "",
-            "name": "3 tablespoons flour & nbsp;"
-        },
-        {
-            "quantity": "",
-            "name": "1 teaspoon of salt"
-        },
-        {
-            "quantity": "",
-            "name": "1 & ccedil; Moon spoon of black pepper"
-        },
-        {
-            "quantity": "",
-            "name": "1 & ccedil; Moon spoon red powder pepper & nbsp;"
-        },
-        {
-            "quantity": "",
-            "name": "Oil & nbsp;"
-        }
-    ],
-    "rice pilaf": [
-        {
-            "quantity": "",
-            "name": "325g Turkish baldo rice (1 ⅔ cups), or use thai jasmine rice"
-        },
-        {
-            "quantity": "",
-            "name": "2 tsp fine sea salt, divided"
-        },
-        {
-            "quantity": "",
-            "name": "40g butter, diced (3 tbsp)"
-        },
-        {
-            "quantity": "",
-            "name": "3 heaped tbsp tel şehriye pasta, or break angel hair into 2,5cm (1 inch) pieces"
-        },
-        {
-            "quantity": "",
-            "name": "540ml chicken stock (2 ¼ cups), or use vegetable stock to keep it vegetarian"
-        },
-        {
-            "quantity": "",
-            "name": "freshly ground black pepper"
-        },
-        {
-            "quantity": "",
-            "name": "spoonfuls of Turkish yogurt, or use full-fat Greek yogurt"
-        }
-    ],
     "tomato soup": [
-        {
-            "quantity": "5",
-            "name": "mature tomatoes"
-        },
-        {
-            "quantity": "2",
-            "name": "tablespoons of butter"
-        },
-        {
-            "quantity": "3",
-            "name": "tablespoons flour"
-        },
-        {
-            "quantity": "1",
-            "name": "liter hot water"
-        },
-        {
-            "quantity": "1",
-            "name": "cup of milk"
-        },
-        {
-            "quantity": "",
-            "name": "Grated fresh cheddar"
-        }
+        "tomatoes",
+        "butter",
+        "flour",
+        "milk",
+        "cheddar"
+    ],
+    "creamy pasta": [
+        "butter",
+        "labne",
+        "cream",
+        "garlic",
+        "parmesan cheese",
+        "dill",
+        "parsley"
+    ],
+    "chicken with soyasos": [
+        "dark soy",
+        "water",
+        "white vinegar",
+        "garlic powder",
+        "ginger powder",
+        "chili flakes",
+        "chili powder",
+        "honey",
+        "starch",
+        "xanthan gum",
+        "curcumin powder",
+        "chicken breast",
+        "onion",
+        "garlic",
+        "pepper",
+        "white mushroom",
+        "sesame seeds",
+        "green onion"
     ]
 }
