@@ -4,24 +4,6 @@ from langchain_ollama import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
-def create_dish_identifier_chain(llm):
-    """Creates a LangChain chain to identify dish names from text."""
-    prompt_template = ChatPromptTemplate.from_messages(
-        [
-            (
-                "system",
-                """You are an expert kitchen assistant. Your task is to identify and extract the dish names from the user's request.
-Strictly follow these rules:
-1. Only identify specific, cookable dish names (e.g., "tomato soup", "creamy pasta", "menemen").
-2. Do not extract general food categories or single ingredients (e.g., "pasta", "salad", "tomato").
-3. Return the dish names as a comma-separated list.
-4. If no specific dish name can be found, return an empty string.""",
-            ),
-            ("human", "User's request: \"{user_input}\"\n\nDish names:"),
-        ]
-    )
-    return prompt_template | llm | StrOutputParser()
-
 class ShoppingListConsolidatorAgent:
     """An agent that consolidates multiple ingredient lists into a single, unique shopping list."""
     def run(self, all_ingredients: dict[str, list[str]]) -> list[str]:
@@ -57,8 +39,23 @@ class OrchestratorAgent:
             print(f"Error: Could not connect to the Ollama service. Is it running? Details: {e}")
             sys.exit(1)
 
+        # --- Create Dish Identifier Chain ---
+        dish_identifier_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are an expert kitchen assistant. Your task is to identify and extract the dish names from the user's request.
+Strictly follow these rules:
+1. Only identify specific, cookable dish names (e.g., "tomato soup", "creamy pasta", "menemen").
+2. Do not extract general food categories or single ingredients (e.g., "pasta", "salad", "tomato").
+3. Return the dish names as a comma-separated list.
+4. If no specific dish name can be found, return an empty string.""",
+                ),
+                ("human", "User's request: \"{user_input}\"\n\nDish names:"),
+            ]
+        )
         # The orchestrator holds instances of the specialized chains it needs.
-        self.dish_identifier_chain = create_dish_identifier_chain(self.llm)
+        self.dish_identifier_chain = dish_identifier_prompt | self.llm | StrOutputParser()
         print("Recipe Assistant (LangChain Edition) started. How can I help you?")
 
     def run(self, user_input: str) -> tuple[list[str], dict[str, list[str]]]:

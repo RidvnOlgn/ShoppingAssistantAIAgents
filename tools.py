@@ -10,7 +10,6 @@ from langchain.tools import tool
 from langchain_ollama import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from pydantic import BaseModel, Field
 
 CACHE_FILE = "recipe_cache.json"
 

@@ -3,6 +3,4 @@ beautifulsoup4
 ddgs
 deep_translator
 langchain
-langchain-community
-pydantic
 langchain-ollama
