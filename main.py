@@ -104,8 +104,8 @@ def main():
                 shopping_list.sort()  # Re-sort after adding
 
             # Ask if user is done
-            done_input = input("Are you finished with your list? (yes/no): ").lower().strip()
-            if done_input == 'yes':
+            done_input = input("Are you finished with your list? (yes/Enter to confirm): ").lower().strip()
+            if done_input == 'yes' or not done_input:
                 break
         
         print_shopping_list("✅ Your Final Shopping List ✅", shopping_list)

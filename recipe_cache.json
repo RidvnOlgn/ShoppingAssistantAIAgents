@@ -110,5 +110,17 @@
         "black pepper",
         "thyme",
         "salt"
+    ],
+    "lentil soup": [
+        "onion",
+        "carrot",
+        "garlic",
+        "potato",
+        "red lentils",
+        "cumin",
+        "lemon",
+        "parsley",
+        "bread",
+        "flatbread"
     ]
 }
