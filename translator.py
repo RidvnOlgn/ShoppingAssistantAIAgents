@@ -4,10 +4,12 @@ from deep_translator.exceptions import TranslationNotFound
 # NOTE: To use this module, you need to install the 'deep-translator' library:
 # pip install deep-translator
 
-def translate_ingredient_list(ingredients: list[str]) -> list[str]:
+def translate_ingredient_list(ingredients: list[str], source: str = 'auto') -> list[str]:
     """
     Translates a list of ingredient strings from any detected language to English.
     Uses an external translation service.
+    :param ingredients: A list of strings to translate.
+    :param source: The source language code (e.g., 'tr', 'en'). Defaults to 'auto'.
     """
     if not ingredients:
         return []
@@ -19,7 +21,7 @@ def translate_ingredient_list(ingredients: list[str]) -> list[str]:
         return ingredients # If all items are empty, return the original list
 
     try:
-        translator = GoogleTranslator(source='auto', target='en')
+        translator = GoogleTranslator(source=source, target='en')
 
         # Translate only the non-empty items in a single batch call
         originals = list(non_empty_items.keys())
