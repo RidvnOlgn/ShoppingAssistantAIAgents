@@ -1,17 +1,19 @@
 import requests
 from ddgs import DDGS
 from bs4 import BeautifulSoup
-import json
 import re
+import json
 import os
 from translator import translate_ingredient_list
 from deep_translator import GoogleTranslator
 from langchain.tools import tool
 from langchain_ollama import ChatOllama
+from pymongo import MongoClient
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from dotenv import load_dotenv
 
-CACHE_FILE = "recipe_cache.json"
+load_dotenv()
 
 # --- Global Setup for Efficiency ---
 # Create LLM instances and chains once to be reused by tools.
@@ -41,28 +43,45 @@ Follow these rules precisely:
 _INGREDIENT_EXTRACTOR_CHAIN = _get_ingredient_extractor_chain()
 # --- End Global Setup ---
 
-def _load_cache() -> dict:
-    """Loads the cache file."""
-    if not os.path.exists(CACHE_FILE):
-        return {}
+# --- Database Helper Functions ---
+from pymongo.errors import ConnectionFailure, OperationFailure
+def _get_db_collection():
+    """Connects to MongoDB and returns the recipes collection."""
+    mongo_uri = os.getenv("MONGO_URI")
+    if not mongo_uri:
+        print("Warning: MONGO_URI environment variable not set. Database functionality is disabled.")
+        return None
     try:
-        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
-            # If the file is empty, return an empty dictionary
-            content = f.read()
-            if not content:
-                return {}
-            return json.loads(content)
-    except (json.JSONDecodeError, IOError):
-        return {}
+        client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        # Use 'ping' to confirm a successful connection and authentication.
+        client.admin.command('ping') 
+        print("Info: Successfully connected to MongoDB.")
+        db = client['shopping_assistant_db']
+        return db['recipes']
+    except OperationFailure as e:
+        print(f"FATAL: MongoDB operation failed. If this is an authentication error, please check your MONGO_URI. Error: {e}")
+        return None
+    except ConnectionFailure as e:
+        print(f"FATAL: Could not connect to MongoDB. Please ensure the server is running and MONGO_URI is correct. Error: {e}")
+        return None
+    except Exception as e:
+        print(f"Warning: An unexpected error occurred with MongoDB. Database functionality is disabled. Error: {e}")
+        return None
 
-def _save_cache(cache: dict):
-    """Saves the cache to a file."""
+def _get_recipe_from_db(collection, dish_name: str) -> list[str] | None:
+    """Finds a recipe in the database by its name."""
+    if collection is None: return None
+    recipe = collection.find_one({"name": dish_name})
+    return recipe.get("ingredients") if recipe else None
+
+def _save_recipe_to_db(collection, dish_name: str, ingredients: list[str]):
+    """Saves a new recipe to the database."""
+    if collection is None: return
     try:
-        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-            json.dump(cache, f, ensure_ascii=False, indent=4)
-    except IOError as e:
-        print(f"Warning: Could not write to cache file: {e}")
-        
+        collection.update_one({"name": dish_name}, {"$set": {"ingredients": ingredients}}, upsert=True)
+    except Exception as e:
+        print(f"Warning: Could not save recipe '{dish_name}' to database. Error: {e}")
+
 def _find_ingredients_from_url(url: str) -> list[str] | None:
     """
     Tries to scrape the ingredient list from a given URL.
@@ -150,34 +169,26 @@ def _find_ingredients_from_url(url: str) -> list[str] | None:
 @tool
 def get_ingredients_for_dish(dish_name: str) -> list[str]:
     """
-    Searches the internet for ingredients for a given dish name, returning a clean list.
-    It translates the dish name for caching and searches for recipes. If found,
-    it scrapes, translates, and cleans the ingredient list using an LLM.
-    Results are cached.
+    Finds ingredients for a given dish. It first checks a persistent database,
+    and if not found, searches the internet. New recipes are saved to the database.
     Raises ValueError if no recipe can be found.
     """
     try:
         translated_dish_name = GoogleTranslator(source='auto', target='en').translate(dish_name.strip())
         if not translated_dish_name:
             translated_dish_name = dish_name.strip()
+        cache_key = translated_dish_name.lower()
     except Exception as e:
         print(f"Warning: Could not translate dish name '{dish_name}': {e}. Using original name.")
-        translated_dish_name = dish_name.strip()
+        cache_key = dish_name.strip().lower()
 
-    cache = _load_cache()
-    cache_key = translated_dish_name.lower()
+    recipes_collection = _get_db_collection()
+    db_ingredients = _get_recipe_from_db(recipes_collection, cache_key)
+    if db_ingredients:
+        print(f"Info: '{cache_key}' found in database.")
+        return db_ingredients
 
-    if cache_key in cache:
-        print(f"Info: '{translated_dish_name}' found in cache.")
-        # The cache now directly stores the clean list of strings.
-        cached_data = cache[cache_key]
-        if isinstance(cached_data, list):
-            return cached_data
-        else:
-            # If the cache has an old format, ignore it and refetch.
-            print(f"Warning: Outdated cache format for '{translated_dish_name}'. Refetching.")
-
-    print(f"Info: Searching internet for '{dish_name}' (as '{translated_dish_name}') (not found in cache)...")
+    print(f"Info: Searching internet for '{dish_name}' (as '{cache_key}') (not found in database)...")
 
     try:
         with DDGS() as ddgs:
@@ -202,15 +213,14 @@ def get_ingredients_for_dish(dish_name: str) -> list[str]:
                         # If the extractor returns nothing, try the next URL
                         continue
 
-                    # 3. Save the clean list to cache and return
-                    cache[cache_key] = clean_ingredients
-                    _save_cache(cache)
+                    # 3. Save the clean list to the database and return
+                    _save_recipe_to_db(recipes_collection, cache_key, clean_ingredients)
                     
-                    print(f"Success: Found and processed ingredients for '{translated_dish_name}'.")
+                    print(f"Success: Found and processed ingredients for '{cache_key}'.")
                     return clean_ingredients
 
             # If the loop finishes and no result is found from any site
-            raise ValueError(f"A search was performed for '{translated_dish_name}', but an ingredient list could not be clearly found.")
+            raise ValueError(f"A search was performed for '{cache_key}', but an ingredient list could not be clearly found.")
     except Exception as e:
         # Re-raise exceptions to be caught by the orchestrator
         raise e

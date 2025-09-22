@@ -2,5 +2,7 @@ requests
 beautifulsoup4
 ddgs
 deep_translator
+python-dotenv
+pymongo
 langchain
 langchain-ollama
