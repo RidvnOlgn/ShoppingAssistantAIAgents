@@ -24,22 +24,73 @@ def main():
     print("-" * 30)
 
     while True:
-        user_input = input("\nWhat would you like to cook? (e.g., 'I want to make tomato soup and grilled meatballs') ('exit' to quit): ")
+        user_input = input("\nWhat would you like to cook? (e.g., 'tomato soup' or 'ideas for dinner') ('exit' to quit): ")
         if user_input.lower() == 'exit':
             print("Goodbye!")
             break
 
-        # Use the orchestrator agent to run the entire workflow.
-        # It handles delegation to other specialized agents.
-        dish_names, responses = orchestrator.run(user_input)
+        # Step 1: Run the initial orchestrator step to get intent and either results or suggestions
+        response_data = orchestrator.run(user_input)
+        status = response_data.get("status")
 
-        if not dish_names:
-            print("Sorry, I couldn't find any dish names in your request. Please try again.")
+        dish_names = []
+        responses = {}
+
+        # Step 2: Handle the response based on its status
+        if status == "suggestions_provided":
+            suggestions = response_data.get("suggestions", [])
+            print("\nHere are a few ideas for you:")
+            for i, suggestion in enumerate(suggestions, 1):
+                print(f"{i}. {suggestion.capitalize()}")
+            
+            choice_input = input("\nWhich of these would you like to make? Enter numbers (e.g., '1, 3'), 'all', or 'none': ").strip().lower()
+
+            if choice_input == 'none' or not choice_input:
+                print("No problem! Let's try something else.")
+                continue
+            
+            chosen_dishes = []
+            if choice_input == 'all':
+                chosen_dishes = suggestions
+            else:
+                choices = [c.strip() for c in choice_input.split(',')]
+                selected_indices = set()
+                for choice in choices:
+                    if choice.isdigit():
+                        try:
+                            idx = int(choice) - 1
+                            if 0 <= idx < len(suggestions):
+                                selected_indices.add(idx)
+                        except ValueError:
+                            pass # Ignore non-numeric parts
+                
+                chosen_dishes = [suggestions[i] for i in sorted(list(selected_indices))]
+
+            if not chosen_dishes:
+                print("I didn't understand your selection. Let's start over.")
+                continue
+
+            # Now that we have the user's choice, get the ingredients
+            dish_names = chosen_dishes
+            responses = orchestrator.get_ingredients(dish_names)
+        
+        elif status == "ingredients_found":
+            # This is the direct path where the user provided dishes
+            dish_names = response_data.get("dishes", [])
+            responses = response_data.get("results", {})
+
+        elif status in ["error", "clarification_needed"]:
+            print(f"\n{response_data.get('message')}")
+            continue
+        
+        else: # No dishes found or other unexpected status
+            print("\nSorry, I couldn't process your request. Please try again.")
             continue
 
-        # --- Interactive Shopping List Creation ---
+        # --- From this point on, the logic is the same for both paths ---
+        # We have `dish_names` and `responses` populated.
 
-        # 1. Show individual recipe results for clarity
+        # Show individual recipe results for clarity
         print("\n" + "="*50)
         print("RECIPE RESULTS")
         print("="*50)
@@ -59,13 +110,13 @@ def main():
         
         if not has_successful_recipes:
              print("\nCould not generate a shopping list as no recipes were successfully found.")
-             print("="*50)
+             print("="*50 + "\n")
              continue
 
-        # 2. Consolidate into a single shopping list
+        # Consolidate into a single shopping list
         shopping_list = consolidator.run(responses)
 
-        # 3. Interactive modification loop
+        # Interactive modification loop
         while True:
             print_shopping_list("🛒 Your Consolidated Shopping List 🛒", shopping_list)
 

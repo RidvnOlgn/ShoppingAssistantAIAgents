@@ -28,7 +28,8 @@ class ShoppingListConsolidatorAgent:
 
 class OrchestratorAgent:
     """
-    The orchestrator agent that runs a workflow using LangChain chains and tools.
+    The orchestrator agent that understands user intent, gets meal ideas if needed,
+    and runs a workflow using LangChain chains and tools to find ingredients.
     """
     def __init__(self, model='gemma3'):
         try:
@@ -39,7 +40,41 @@ class OrchestratorAgent:
             print(f"Error: Could not connect to the Ollama service. Is it running? Details: {e}")
             sys.exit(1)
 
-        # --- Create Dish Identifier Chain ---
+        # --- Create Intent Router Chain ---
+        intent_router_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are an intent classification expert. Your job is to analyze the user's request and classify it into one of the following categories:
+- 'provide_dishes': The user is explicitly stating one or more specific dishes they want to cook. Examples: "I want to make tomato soup and grilled meatballs", "menemen", "carbonara".
+- 'request_ideas': The user is asking for suggestions, ideas, or recommendations for meals. Examples: "What should I cook for dinner?", "Give me some ideas for a quick lunch", "I need a vegetarian recipe".
+- 'other': The request is not about providing dishes or asking for ideas.
+
+You must return only one of the category names: 'provide_dishes', 'request_ideas', or 'other'.""",
+                ),
+                ("human", "User's request: \"{user_input}\"\n\nIntent:"),
+            ]
+        )
+        self.intent_router_chain = intent_router_prompt | self.llm | StrOutputParser()
+
+        # --- Create Meal Suggester Chain ---
+        meal_suggester_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are a creative and helpful chef. Your task is to suggest specific, cookable dish names based on the user's request for ideas.
+Follow these rules:
+1. Read the user's request for meal ideas.
+2. Suggest 2-3 specific and popular dish names that fit the request.
+3. Return only the dish names as a comma-separated list. For example: "Spaghetti Carbonara, Chicken Alfredo, Mushroom Risotto".
+4. Do not add any other text, explanations, or greetings.""",
+                ),
+                ("human", "User's request: \"{user_input}\"\n\nSuggested dish names:"),
+            ]
+        )
+        self.meal_suggester_chain = meal_suggester_prompt | self.llm | StrOutputParser()
+
+        # --- Create Dish Identifier Chain (existing) ---
         dish_identifier_prompt = ChatPromptTemplate.from_messages(
             [
                 (
@@ -58,26 +93,12 @@ Strictly follow these rules:
         self.dish_identifier_chain = dish_identifier_prompt | self.llm | StrOutputParser()
         print("Recipe Assistant (LangChain Edition) started. How can I help you?")
 
-    def run(self, user_input: str) -> tuple[list[str], dict[str, list[str]]]:
+    def get_ingredients(self, dish_names: list[str]) -> dict[str, list[str]]:
         """
-        Runs the full workflow using LangChain:
-        1. Identify dishes from user input.
-        2. For each dish, use the `get_ingredients_for_dish` tool to find,
-           scrape, and clean a list of ingredients.
-        3. Return the identified dishes and a dictionary of results.
+        For a given list of dish names, finds ingredients for each.
+        This is the core worker function that calls the ingredient tool.
         """
-        print("Understanding your request...")
-        # 1. Identify dishes
-        dish_names_str = self.dish_identifier_chain.invoke({"user_input": user_input})
-        
-        if not dish_names_str:
-            return [], {}
-        
-        dish_names = [name.strip() for name in dish_names_str.split(',') if name.strip()]
-        if not dish_names:
-            return [], {}
-
-        print(f"Found dishes: {', '.join(dish_names)}. Fetching ingredients and creating shopping lists...")
+        print(f"Fetching ingredients for: {', '.join(dish_names)}...")
         
         results = {}
         # For each dish, invoke the tool which now handles the entire process
@@ -87,12 +108,48 @@ Strictly follow these rules:
                 # The tool now returns a clean list of ingredients directly.
                 clean_ingredients = get_ingredients_for_dish.invoke(dish_name)
                 results[dish_name] = clean_ingredients
-
+ 
             except Exception as exc:
                 # If the tool raises an exception (e.g., recipe not found),
                 # we catch it and store the error message.
                 error_message = str(exc)
                 print(f"An error occurred while processing '{dish_name}': {error_message}")
                 results[dish_name] = [error_message]
+        return results
 
-        return dish_names, results
+    def run(self, user_input: str) -> dict:
+        """
+        Runs the initial step of the workflow:
+        1. Determine user intent (wants ideas vs. has specific dishes).
+        2. If ideas are requested, returns suggestions for the user to choose from.
+        3. If dishes are provided, fetches ingredients and returns them directly.
+        Returns a dictionary with a 'status' and relevant data.
+        """
+        print("Understanding your request...")
+        # 1. Determine user intent
+        intent = self.intent_router_chain.invoke({"user_input": user_input}).strip()
+        print(f"User intent identified as: '{intent}'")
+
+        if intent == 'provide_dishes':
+            # 2a. Identify dishes from user input
+            dish_names_str = self.dish_identifier_chain.invoke({"user_input": user_input})
+            dish_names = [name.strip() for name in dish_names_str.split(',') if name.strip()]
+            if not dish_names:
+                return {"status": "error", "message": "Sorry, I couldn't find any dish names in your request. Please try again."}
+            
+            # 3a. Get ingredients for the identified dishes
+            results = self.get_ingredients(dish_names)
+            return {"status": "ingredients_found", "dishes": dish_names, "results": results}
+
+        elif intent == 'request_ideas':
+            # 2b. Generate dish ideas and return them for user confirmation
+            print("Generating some meal ideas for you...")
+            dish_names_str = self.meal_suggester_chain.invoke({"user_input": user_input})
+            dish_names = [name.strip() for name in dish_names_str.split(',') if name.strip()]
+            if not dish_names:
+                return {"status": "error", "message": "Sorry, I couldn't come up with any ideas for that."}
+            
+            return {"status": "suggestions_provided", "suggestions": dish_names}
+
+        else: # 'other' or unexpected
+            return {"status": "clarification_needed", "message": "I can help you find ingredients for specific dishes or suggest meal ideas. Please tell me what you'd like to cook!"}
