@@ -24,7 +24,7 @@ def main():
     print("-" * 30)
 
     while True:
-        user_input = input("\nWhat would you like to cook? (e.g., 'tomato soup' or 'ideas for dinner') ('exit' to quit): ")
+        user_input = input("\nWhat would you like to cook? (e.g., 'tomato soup', 'ideas for dinner', or 'I have chicken, potatoes') ('exit' to quit): ")
         if user_input.lower() == 'exit':
             print("Goodbye!")
             break
@@ -78,6 +78,23 @@ def main():
             # This is the direct path where the user provided dishes
             dish_names = response_data.get("dishes", [])
             responses = response_data.get("results", {})
+
+        elif status == "dish_suggestion_provided":
+            suggestion = response_data.get("suggestion")
+            print(f"\nBased on your ingredients, how about making: {suggestion.capitalize()}?")
+            
+            choice_input = input("Would you like to get the ingredient list for this? (yes/no): ").strip().lower()
+
+            if choice_input in ['yes', 'y']:
+                # Get ingredients for the single suggested dish
+                dish_names = [suggestion]
+                responses = orchestrator.get_ingredients(dish_names)
+            elif choice_input in ['no', 'n']:
+                print("No problem! Let's try something else.")
+                continue
+            else:
+                print("I didn't understand your selection. Let's start over.")
+                continue
 
         elif status in ["error", "clarification_needed"]:
             print(f"\n{response_data.get('message')}")

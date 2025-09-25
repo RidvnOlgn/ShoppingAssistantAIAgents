@@ -48,9 +48,10 @@ class OrchestratorAgent:
                     """You are an intent classification expert. Your job is to analyze the user's request and classify it into one of the following categories:
 - 'provide_dishes': The user is explicitly stating one or more specific dishes they want to cook. Examples: "I want to make tomato soup and grilled meatballs", "menemen", "carbonara".
 - 'request_ideas': The user is asking for suggestions, ideas, or recommendations for meals. Examples: "What should I cook for dinner?", "Give me some ideas for a quick lunch", "I need a vegetarian recipe".
-- 'other': The request is not about providing dishes or asking for ideas.
+- 'suggest_dish_from_ingredients': The user is listing ingredients they have and wants a dish suggestion based on them. Examples: "I have chicken, potatoes, and tomatoes, what can I make?", "what to cook with onion and ground beef?".
+- 'other': The request does not fit any of the above categories.
 
-You must return only one of the category names: 'provide_dishes', 'request_ideas', or 'other'.""",
+You must return only one of the category names: 'provide_dishes', 'request_ideas', 'suggest_dish_from_ingredients', or 'other'.""",
                 ),
                 ("human", "User's request: \"{user_input}\"\n\nIntent:"),
             ]
@@ -92,6 +93,41 @@ Strictly follow these rules:
         # The orchestrator holds instances of the specialized chains it needs.
         self.dish_identifier_chain = dish_identifier_prompt | self.llm | StrOutputParser()
         print("Recipe Assistant (LangChain Edition) started. How can I help you?")
+
+        # --- Create Ingredient Extractor from Prompt Chain ---
+        ingredient_extractor_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are an expert at identifying food ingredients from a user's message.
+Your task is to extract only the ingredient names from the user's request.
+Strictly follow these rules:
+1. Only identify food ingredients (e.g., "chicken", "potato", "onion").
+2. Ignore quantities or other non-ingredient words.
+3. Return the ingredient names as a comma-separated list.
+4. If no ingredients can be found, return an empty string.""",
+                ),
+                ("human", "User's request: \"{user_input}\"\n\nIngredients:"),
+            ]
+        )
+        self.ingredient_extractor_chain = ingredient_extractor_prompt | self.llm | StrOutputParser()
+
+        # --- Create Dish Suggester from Ingredients Chain ---
+        dish_suggester_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    """You are a creative chef. Your task is to suggest a single, specific, and cookable dish name based on a list of ingredients provided.
+The suggested dish should be a good fit for the given ingredients, but it does not need to use all of them.
+Follow these rules:
+1. Read the list of ingredients.
+2. Suggest one single, common, and specific dish name. For example, if the ingredients are "ground beef, potatoes, onion", a good suggestion is "Shepherd's Pie".
+3. Return only the dish name. Do not add any other text, explanations, or greetings. For example: "Baked Chicken with Potatoes".""",
+                ),
+                ("human", "Ingredients: \"{ingredients}\"\n\nSuggested dish name:"),
+            ]
+        )
+        self.dish_suggester_chain = dish_suggester_prompt | self.llm | StrOutputParser()
 
     def get_ingredients(self, dish_names: list[str]) -> dict[str, list[str]]:
         """
@@ -150,6 +186,21 @@ Strictly follow these rules:
                 return {"status": "error", "message": "Sorry, I couldn't come up with any ideas for that."}
             
             return {"status": "suggestions_provided", "suggestions": dish_names}
+
+        elif intent == 'suggest_dish_from_ingredients':
+            # 2c. Extract ingredients from the user's prompt
+            print("Identifying ingredients from your message...")
+            ingredients_str = self.ingredient_extractor_chain.invoke({"user_input": user_input})
+            if not ingredients_str.strip():
+                return {"status": "error", "message": "I couldn't identify any ingredients in your message. Please list the ingredients you have."}
+            
+            # 3c. Suggest a dish based on the extracted ingredients
+            print(f"Thinking of a dish for: {ingredients_str}...")
+            suggested_dish = self.dish_suggester_chain.invoke({"ingredients": ingredients_str})
+            if not suggested_dish.strip():
+                return {"status": "error", "message": "Sorry, I couldn't think of a dish with those ingredients."}
+
+            return {"status": "dish_suggestion_provided", "suggestion": suggested_dish.strip()}
 
         else: # 'other' or unexpected
             return {"status": "clarification_needed", "message": "I can help you find ingredients for specific dishes or suggest meal ideas. Please tell me what you'd like to cook!"}
