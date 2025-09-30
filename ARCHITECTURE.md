@@ -1,6 +1,8 @@
-# Project Architecture
+# Shopping Assistant AI Agents Architecture
 
-This diagram illustrates the workflow of the Shopping Assistant AI Agents project.
+This document explains the technical architecture, components, and data flow of the Shopping Assistant AI Agents project. The project is an agent-based system built on LangChain and local LLMs (via Ollama) to help users create ingredient lists for recipes.
+
+## High-Level Diagram
 
 ```mermaid
 %%{
@@ -18,39 +20,46 @@ This diagram illustrates the workflow of the Shopping Assistant AI Agents projec
 }%%
 
 graph TD
-    subgraph "1. User Request"
-        A[👤 User] -->|"'I want to make tomato soup'"| B(main.py);
+    subgraph "1. User Interaction"
+        A[👤 User] -->|"Input: 'I want to make menemen' or 'ideas for dinner'"| B(main.py);
     end
 
-    subgraph "2. Agent Orchestration"
+    subgraph "2. Orchestration & Logic"
         FileNode2["(File: agent.py)"];
         style FileNode2 fill:none,stroke:none,font-style:italic,color:#666;
         
-        B -->|"Send Request"| C[OrchestratorAgent];
-        C -->|"1. Understand Dish Name (LLM)"| D["Result: 'tomato soup'"];
-        D -->|"2. Call Find Ingredients Tool"| E[🛠️ get_ingredients_for_dish];
+        B -->|"Run workflow"| C[OrchestratorAgent];
+        C -->|"1. Route Intent (LLM)"| D{Intent?};
+        D -- "provide_dishes" --> E["Identify Dishes (LLM)"];
+        D -- "request_ideas" --> F["Suggest Meals (LLM)"];
+        D -- "suggest_dish_from_ingredients" --> G["Suggest Dish (LLM)"];
+        E --> H[Call Tool: get_ingredients];
+        F --> A;
+        G --> A;
     end
 
-    subgraph "3. Ingredient Finder Tool"
+    subgraph "3. Tools & Data Access"
         FileNode3["(File: tools.py)"];
         style FileNode3 fill:none,stroke:none,font-style:italic,color:#666;
 
-        E -->|"Check Cache First"| F{🗄️ recipe_cache.json};
-        F -- "Recipe Exists" --> G[Return to Orchestrator];
-        F -- "Recipe Not Found" --> H["🌐 Web Search & Page Scraping"];
-        H -->|"Raw Ingredient List"| I["Clean Ingredients (LLM)"];
-        I -->|"Clean Ingredient List"| J[Save to Cache];
-        J -->|"Clean Ingredient List"| G;
+        H --> I[🛠️ get_ingredients_for_dish];
+        I -->|"Check Cache"| J{🗄️ MongoDB};
+        J -- "Recipe Exists" --> K[Return to Orchestrator];
+        J -- "Recipe Not Found" --> L["🌐 Web Search (DDGS)"];
+        L --> M["Scrape Page (BeautifulSoup)"];
+        M -->|"Raw Ingredient Text"| N["Clean Ingredients (LLM)"];
+        N -->|"Clean List"| O[Save to Cache];
+        O --> K;
     end
 
-    subgraph "4. Shopping List Generation"
+    subgraph "4. Final Output"
         FileNode4["(File: main.py)"];
         style FileNode4 fill:none,stroke:none,font-style:italic,color:#666;
 
-        G -->|"Collect Results"| K(main.py);
-        K -->|"Consolidate Lists"| L[🛒 Consolidated Shopping List];
-        L -->|"Show to User"| M[👤 User];
-        M -->|"Add/Remove"| L;
-        M -- "Finished" --> N[✅ Final Shopping List];
+        K -->|"Collect Results"| P(main.py);
+        P -->|"Consolidate Lists"| Q[🛒 Consolidated Shopping List];
+        Q -->|"Show to User"| A;
+        A -->|"Add/Remove Items"| Q;
+        A -- "Finished" --> R[✅ Final Shopping List];
     end
 ```
