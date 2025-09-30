@@ -9,7 +9,7 @@ from deep_translator import GoogleTranslator
 from langchain.tools import tool
 from langchain_ollama import ChatOllama
 from pymongo import MongoClient
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 
@@ -26,19 +26,26 @@ def _get_ingredient_extractor_chain():
         [
             (
                 "system",
-                """You are a data extraction specialist. Your task is to extract only the core ingredient names from the provided text.
+                """You are a data extraction specialist for recipes. Your task is to extract the quantity, unit, and name for each ingredient from the provided text.
 Follow these rules precisely:
-1. Read the text which contains a list of ingredients.
-2. For each line, identify the main food item.
-3. Ignore quantities (e.g., "100 g", "2-3 tbsp", "1 cup").
-4. Ignore preparation instructions (e.g., "finely chopped", "diced", "skin off").
-5. Ignore packaging details (e.g., "(28-ounce) can").
-6. Return only the clean ingredient names as a comma-separated list. For example, for "- 1 (28-ounce) can whole San Marzano tomatoes", you should extract "San Marzano tomatoes". For "- 100 g Carrot", you should extract "Carrot".""",
+1. For each ingredient, extract three fields: 'quantity' (e.g., "1", "2-3", "1/2"), 'unit' (e.g., "cup", "tbsp", "g", "clove", "adet"), and 'name' (the core ingredient, e.g., "San Marzano tomatoes", "Carrot").
+2. Ignore preparation instructions (e.g., "finely chopped", "diced").
+3. If a quantity or unit is not present, return it as an empty string "". For example, "salt to taste" should be `{{"quantity": "", "unit": "", "name": "salt"}}`.
+4. Return the result as a valid JSON array of objects.
+
+Example Input:
+- 1 (28-ounce) can whole San Marzano tomatoes
+- 2-3 cloves garlic, minced
+- 100 g Carrot
+- Salt and pepper
+
+Example Output:
+[{{"quantity": "1", "unit": "can", "name": "whole San Marzano tomatoes"}}, {{"quantity": "2-3", "unit": "cloves", "name": "garlic"}}, {{"quantity": "100", "unit": "g", "name": "Carrot"}}, {{"quantity": "", "unit": "", "name": "Salt"}}, {{"quantity": "", "unit": "", "name": "pepper"}}]""",
             ),
-            ("human", 'Text to process:\n"{ingredient_text}"\n\nComma-separated ingredient names:'),
+            ("human", 'Text to process:\n"{ingredient_text}"\n\nJSON Output:'),
         ]
     )
-    return prompt_template | _LLM_TEXT_PARSER | StrOutputParser()
+    return prompt_template | _LLM_TEXT_PARSER | JsonOutputParser()
 
 _INGREDIENT_EXTRACTOR_CHAIN = _get_ingredient_extractor_chain()
 # --- End Global Setup ---
@@ -68,13 +75,13 @@ def _get_db_collection():
         print(f"Warning: An unexpected error occurred with MongoDB. Database functionality is disabled. Error: {e}")
         return None
 
-def _get_recipe_from_db(collection, dish_name: str) -> list[str] | None:
+def _get_recipe_from_db(collection, dish_name: str) -> list[dict] | None:
     """Finds a recipe in the database by its name."""
     if collection is None: return None
     recipe = collection.find_one({"name": dish_name})
     return recipe.get("ingredients") if recipe else None
 
-def _save_recipe_to_db(collection, dish_name: str, ingredients: list[str]):
+def _save_recipe_to_db(collection, dish_name: str, ingredients: list[dict]):
     """Saves a new recipe to the database."""
     if collection is None: return
     try:
@@ -167,7 +174,7 @@ def _find_ingredients_from_url(url: str) -> list[str] | None:
         return None
 
 @tool
-def get_ingredients_for_dish(dish_name: str) -> list[str]:
+def get_ingredients_for_dish(dish_name: str) -> list[dict]:
     """
     Finds ingredients for a given dish. It first checks a persistent database,
     and if not found, searches the internet. New recipes are saved to the database.
@@ -205,10 +212,10 @@ def get_ingredients_for_dish(dish_name: str) -> list[str]:
                     
                     # 2. Clean the translated list using the LLM chain
                     ingredient_text_block = "\n".join(translated_ingredients)
-                    extracted_str = _INGREDIENT_EXTRACTOR_CHAIN.invoke({"ingredient_text": ingredient_text_block})
+                    extracted_json = _INGREDIENT_EXTRACTOR_CHAIN.invoke({"ingredient_text": ingredient_text_block})
                     
-                    clean_ingredients = [ing.strip() for ing in extracted_str.split(',') if ing.strip()]
-                    
+                    # The output is now a list of dictionaries
+                    clean_ingredients = extracted_json if isinstance(extracted_json, list) else []
                     if not clean_ingredients:
                         # If the extractor returns nothing, try the next URL
                         continue

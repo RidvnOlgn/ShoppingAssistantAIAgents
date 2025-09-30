@@ -4,27 +4,55 @@ from langchain_ollama import ChatOllama
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 
+def _is_numeric(s):
+    """Check if a string can be converted to a float."""
+    try:
+        float(s)
+        return True
+    except (ValueError, TypeError):
+        return False
+
 class ShoppingListConsolidatorAgent:
     """An agent that consolidates multiple ingredient lists into a single, unique shopping list."""
-    def run(self, all_ingredients: dict[str, list[str]]) -> list[str]:
+    def run(self, all_ingredients: dict[str, list[dict]]) -> list[str]:
         """
-        Takes a dictionary of dish-to-ingredient-lists and returns a single, alphabetized, unique list.
-        It performs basic normalization (lowercase, strip) to merge similar items.
+        Takes a dictionary of dish-to-ingredient-lists and returns a single, formatted shopping list.
+        It consolidates items by name and attempts to sum quantities if units are compatible.
         """
-        consolidated_set = set()
+        consolidated_dict = {}
         for dish, ingredients in all_ingredients.items():
             # Skip if the list contains an error message or is empty
-            if not ingredients or ("error occurred" in ingredients[0] or "not be clearly found" in ingredients[0] or "No recipe found" in ingredients[0]):
+            if not ingredients or isinstance(ingredients[0], str): # Error messages are strings
                 continue
             
             for ingredient in ingredients:
-                # Basic normalization
-                normalized_ingredient = ingredient.lower().strip()
-                if normalized_ingredient:
-                    consolidated_set.add(normalized_ingredient)
+                name = ingredient.get("name", "").lower().strip()
+                if not name:
+                    continue
+                
+                quantity = ingredient.get("quantity", "")
+                unit = ingredient.get("unit", "").lower().strip()
+
+                if name not in consolidated_dict:
+                    consolidated_dict[name] = {"quantities": [], "units": set()}
+
+                if _is_numeric(quantity) and unit:
+                    consolidated_dict[name]["quantities"].append(float(quantity))
+                    consolidated_dict[name]["units"].add(unit)
+                elif quantity: # Non-numeric quantity like "to taste" or "a pinch"
+                    consolidated_dict[name]["quantities"].append(quantity)
         
-        # Return a sorted list for consistent and readable output
-        return sorted(list(consolidated_set))
+        # Format the final list
+        final_list = []
+        for name, data in sorted(consolidated_dict.items()):
+            if len(data["units"]) == 1 and all(_is_numeric(q) for q in data["quantities"]):
+                total_quantity = sum(q for q in data["quantities"] if _is_numeric(q))
+                unit = list(data["units"])[0]
+                final_list.append(f"{total_quantity} {unit} {name.capitalize()}")
+            else: # If units are mixed or quantities are not numeric, just list the name
+                final_list.append(name.capitalize())
+
+        return sorted(final_list)
 
 class OrchestratorAgent:
     """
@@ -129,7 +157,7 @@ Follow these rules:
         )
         self.dish_suggester_chain = dish_suggester_prompt | self.llm | StrOutputParser()
 
-    def get_ingredients(self, dish_names: list[str]) -> dict[str, list[str]]:
+    def get_ingredients(self, dish_names: list[str]) -> dict[str, list[dict]]:
         """
         For a given list of dish names, finds ingredients for each.
         This is the core worker function that calls the ingredient tool.
@@ -148,7 +176,7 @@ Follow these rules:
             except Exception as exc:
                 # If the tool raises an exception (e.g., recipe not found),
                 # we catch it and store the error message.
-                error_message = str(exc)
+                error_message = f"An error occurred: {exc}"
                 print(f"An error occurred while processing '{dish_name}': {error_message}")
                 results[dish_name] = [error_message]
         return results

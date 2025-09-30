@@ -114,16 +114,19 @@ def main():
         has_successful_recipes = False
         for dish_name in dish_names:
             ingredient_list = responses.get(dish_name)
-            if ingredient_list:
-                if "error occurred" in ingredient_list[0] or "not be clearly found" in ingredient_list[0] or "No recipe found" in ingredient_list[0]:
-                    print(f"\nCould not get ingredients for '{dish_name}': {ingredient_list[0]}")
-                else:
-                    has_successful_recipes = True
-                    print(f"\nIngredients for '{dish_name}':")
-                    for item in ingredient_list:
-                        print(f"- {item}")
-            else:
+            if not ingredient_list:
                 print(f"\nCould not get ingredients for '{dish_name}': Unknown error.")
+                continue
+
+            # Check if the result is an error (string) or a success (list of dicts)
+            if isinstance(ingredient_list[0], str) and "error occurred" in ingredient_list[0]:
+                print(f"\nCould not get ingredients for '{dish_name}': {ingredient_list[0]}")
+            else:
+                has_successful_recipes = True
+                print(f"\nIngredients for '{dish_name}':")
+                for item in ingredient_list:
+                    # Format the output string: "1 cup flour" or "Salt"
+                    print(f"- {' '.join(filter(None, [item.get('quantity', ''), item.get('unit', ''), item.get('name', '')]))}")
         
         if not has_successful_recipes:
              print("\nCould not generate a shopping list as no recipes were successfully found.")
@@ -138,27 +141,26 @@ def main():
             print_shopping_list("🛒 Your Consolidated Shopping List 🛒", shopping_list)
 
             # Ask to remove items
-            to_remove_input = input("Enter items to REMOVE (comma-separated, e.g., 'onion, garlic') or press Enter to skip: ").strip()
+            to_remove_input = input("Enter ingredient NAMES to REMOVE (e.g., 'onion, garlic') or press Enter: ").strip().lower()
             if to_remove_input:
-                items_to_remove_raw = [item.strip() for item in to_remove_input.split(',')]
-                # 1. Translate items using the robust translator module.
-                # Specify 'tr' as the source language for accurate translation of user input.
-                translated_items = translate_ingredient_list(items_to_remove_raw, source='tr')
-                # 2. Normalize to lowercase for comparison. The shopping list is already all lowercase.
-                normalized_items_to_remove = {item.lower().strip() for item in translated_items}
-                shopping_list = [item for item in shopping_list if item not in normalized_items_to_remove]
+                items_to_remove = {item.strip() for item in to_remove_input.split(',')}
+                # Filter the list, removing items whose name matches
+                shopping_list = [
+                    item for item in shopping_list 
+                    if not any(name_to_remove in item.lower() for name_to_remove in items_to_remove)
+                ]
 
             # Ask to add items
-            to_add_input = input("Enter items to ADD (comma-separated, e.g., 'olive oil, pepper') or press Enter to skip: ").strip()
+            to_add_input = input("Enter items to ADD (e.g., 'Olive oil, 1 box pasta') or press Enter: ").strip()
             if to_add_input:
-                items_to_add_raw = [item.strip() for item in to_add_input.split(',') if item.strip()]
-                # 1. Translate using the robust translator, specifying 'tr' as the source.
-                translated_items = translate_ingredient_list(items_to_add_raw, source='tr')
-                # 2. Normalize to lowercase before adding.
-                translated_items_to_add = [item.lower().strip() for item in translated_items]
+                # For simplicity, we add the user's string directly.
+                # A more advanced version could parse this input too.
+                items_to_add_raw = [item.strip() for item in to_add_input.split(',')]
+                translated_items_to_add = translate_ingredient_list(items_to_add_raw, source='tr')
+
                 for item in translated_items_to_add:
-                    if item not in shopping_list:
-                        shopping_list.append(item)
+                    # Capitalize for consistency and add
+                    shopping_list.append(item.capitalize())
                 shopping_list.sort()  # Re-sort after adding
 
             # Ask if user is done
