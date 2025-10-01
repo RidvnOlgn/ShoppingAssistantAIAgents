@@ -1,5 +1,6 @@
 from agent import OrchestratorAgent, ShoppingListConsolidatorAgent
 from translator import translate_ingredient_list
+from tools import get_price_info
 
 def print_shopping_list(title: str, shopping_list: list[str]):
     """Helper function to print the shopping list neatly."""
@@ -13,6 +14,20 @@ def print_shopping_list(title: str, shopping_list: list[str]):
             # Capitalize the first letter for better readability
             print(f"{i}. {item.capitalize()}")
     print("-" * 40)
+
+def print_price_comparison(price_data: dict):
+    """Helper function to print the price comparison table."""
+    print("\n" + "="*50)
+    print("🛒 Price Comparison Results 🛒")
+    print("="*50)
+    if not price_data:
+        print("Price information could not be found.")
+        return
+
+    for item, prices in price_data.items():
+        price_str = " | ".join([f"{store}: {price}" for store, price in prices.items()])
+        print(f"- {item.capitalize()}: {price_str}")
+    print("="*50)
 
 def main():
     """
@@ -171,6 +186,20 @@ def main():
         print_shopping_list("✅ Your Final Shopping List ✅", shopping_list)
         print("Happy cooking!")
         print("="*50)
+
+        # --- NEW STEP: Price Comparison ---
+        price_check_input = input("\nWould you like to search for prices for this list? (yes/no): ").lower().strip()
+        if price_check_input in ['yes', 'y']:
+            print("\nSearching for prices, please wait...")
+            price_comparison_results = {}
+            for item in shopping_list:
+                # Get price info for each item
+                price_info = get_price_info.invoke({"item_name": item})
+                price_comparison_results[item] = price_info
+            
+            print_price_comparison(price_comparison_results)
+        else:
+            print("\nSkipping price search.")
 
 if __name__ == "__main__":
     main()

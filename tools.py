@@ -231,3 +231,74 @@ def get_ingredients_for_dish(dish_name: str) -> list[dict]:
     except Exception as e:
         # Re-raise exceptions to be caught by the orchestrator
         raise e
+
+@tool
+def get_price_info(item_name: str) -> dict:
+    """
+    Searches for an item's price on major online grocery stores (Migros, CarrefourSA).
+    Returns a dictionary with prices from each store.
+    """
+    print(f"   -> Searching for price: {item_name}")
+    prices = {}
+
+    # --- Enhanced Cleaning Logic ---
+    # Removes known units and numeric expressions to leave only the product name.
+    # Example: "1.0 medium Onion" -> "Onion"
+    # Example: "200.0 g ground beef" -> "ground beef"
+    temp_name = item_name.lower()
+    # 1. Remove numbers and dots from the beginning
+    temp_name = re.sub(r'^[0-9\s.-]+', '', temp_name).strip()
+    # 2. Remove known units (and their plurals)
+    units_to_remove = ['cup', 'tablespoon', 'tbsp', 'teaspoon', 'tsp', 'ounce', 'oz', 'gram', 'g', 'kg', 'kilogram', 'pound', 'lb', 'clove', 'can', 'medium', 'large', 'small', 'piece']
+    for unit in units_to_remove:
+        # Remove singular and plural forms of the unit (with 's') along with a space
+        temp_name = re.sub(r'^\b' + re.escape(unit) + r's?\b\s*', '', temp_name)
+    
+    clean_item_name = temp_name.strip()
+    if not clean_item_name:
+        clean_item_name = item_name  # If cleaning fails, use the original name
+
+    # --- Query Enhancement ---
+    # For simple, single-word items, add keywords to find a product page.
+    search_query_item = clean_item_name
+    if len(clean_item_name.split()) == 1:
+        search_query_item = f'"{clean_item_name}" produce fresh'
+
+    stores = {
+        "Walmart": "site:walmart.com"
+    }
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+
+    with DDGS(timeout=10) as ddgs:
+        for store_name, site_filter in stores.items():
+            try:
+                query = f'{site_filter} {search_query_item}'
+                results = list(ddgs.text(query, max_results=1, headers=headers))
+                if not results:
+                    prices[store_name] = "Not found"
+                    continue
+
+                url = results[0]['href']
+                response = requests.get(url, headers=headers, timeout=10)
+                soup = BeautifulSoup(response.text, 'html.parser')
+
+                # Potential selectors to find the price element. Includes schema.org standard.
+                price_selectors = ['[itemprop="price"]', '.pr-bx-item-price', '[class*="price"]', '[id*="price"]', '.product-price', '[class*="prc-"]']
+                price_text = "Not found"
+                for selector in price_selectors:
+                    price_element = soup.select_one(selector)
+                    if price_element and re.search(r'\d', price_element.get_text()):
+                        # Clean the price text to get a more direct value
+                        raw_price = price_element.get_text(strip=True)
+                        # Extract the part that looks like a price (e.g., $1.88 from "Now $1.88")
+                        match = re.search(r'[\$€£]?\s*\d+[\.,]\d{2}', raw_price)
+                        price_text = match.group(0) if match else raw_price
+                        break
+                prices[store_name] = price_text
+            except Exception as e:
+                print(f"      ! Error while getting price from {store_name}: {e}")
+                prices[store_name] = "Error"
+    return prices
