@@ -52,14 +52,29 @@ graph TD
         O --> K;
     end
 
-    subgraph "4. Final Output"
-        FileNode4["(File: main.py)"];
+    subgraph "4. List Finalization"
+        FileNode4["(File: main.py & agent.py)"];
         style FileNode4 fill:none,stroke:none,font-style:italic,color:#666;
 
         K -->|"Collect Results"| P(main.py);
-        P -->|"Consolidate Lists"| Q[🛒 Consolidated Shopping List];
-        Q -->|"Show to User"| A;
+        P -->|"Consolidate Lists (ConsolidatorAgent)"| Q[🛒 Consolidated Shopping List];
+        Q -->|"Show for Modification"| A;
         A -->|"Add/Remove Items"| Q;
         A -- "Finished" --> R[✅ Final Shopping List];
+    end
+
+    subgraph "5. Price Comparison (Optional)"
+        FileNode5["(File: main.py & tools.py)"];
+        style FileNode5 fill:none,stroke:none,font-style:italic,color:#666;
+
+        R --> S{"Ask for price check"};
+        S -- "User says 'yes'" --> T["Loop: For each item in list"];
+        T --> U[Call 🛠️ get_price_info];
+        U --> V["🌐 Web Search (DDGS)"];
+        V --> W["Scrape Price (BS4)"];
+        W --> T;
+        T -- "Loop finished" --> X["📊 Aggregate & Display Results"];
+        X --> A;
+        S -- "User says 'no'" --> Y((End));
     end
 ```
