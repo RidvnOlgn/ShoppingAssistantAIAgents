@@ -1,5 +1,6 @@
 import requests
 from ddgs import DDGS
+import logging
 from bs4 import BeautifulSoup
 import re
 import json
@@ -12,6 +13,9 @@ from pymongo import MongoClient
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
+
+# --- Logging Setup ---
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 load_dotenv()
 
@@ -56,23 +60,23 @@ def _get_db_collection():
     """Connects to MongoDB and returns the recipes collection."""
     mongo_uri = os.getenv("MONGO_URI")
     if not mongo_uri:
-        print("Warning: MONGO_URI environment variable not set. Database functionality is disabled.")
+        logging.warning("MONGO_URI environment variable not set. Database functionality is disabled.")
         return None
     try:
         client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
         # Use 'ping' to confirm a successful connection and authentication.
         client.admin.command('ping') 
-        print("Info: Successfully connected to MongoDB.")
+        logging.info("Successfully connected to MongoDB.")
         db = client['shopping_assistant_db']
         return db['recipes']
     except OperationFailure as e:
-        print(f"FATAL: MongoDB operation failed. If this is an authentication error, please check your MONGO_URI. Error: {e}")
+        logging.critical(f"MongoDB operation failed. If this is an authentication error, please check your MONGO_URI. Error: {e}")
         return None
     except ConnectionFailure as e:
-        print(f"FATAL: Could not connect to MongoDB. Please ensure the server is running and MONGO_URI is correct. Error: {e}")
+        logging.critical(f"Could not connect to MongoDB. Please ensure the server is running and MONGO_URI is correct. Error: {e}")
         return None
     except Exception as e:
-        print(f"Warning: An unexpected error occurred with MongoDB. Database functionality is disabled. Error: {e}")
+        logging.error(f"An unexpected error occurred with MongoDB. Database functionality is disabled. Error: {e}", exc_info=True)
         return None
 
 def _get_recipe_from_db(collection, dish_name: str) -> list[dict] | None:
@@ -87,7 +91,7 @@ def _save_recipe_to_db(collection, dish_name: str, ingredients: list[dict]):
     try:
         collection.update_one({"name": dish_name}, {"$set": {"ingredients": ingredients}}, upsert=True)
     except Exception as e:
-        print(f"Warning: Could not save recipe '{dish_name}' to database. Error: {e}")
+        logging.warning(f"Could not save recipe '{dish_name}' to database. Error: {e}")
 
 def _find_ingredients_from_url(url: str) -> list[str] | None:
     """
@@ -123,12 +127,12 @@ def _find_ingredients_from_url(url: str) -> list[str] | None:
                     graph = item.get('@graph', [])
                     for node in graph:
                         if isinstance(node, dict) and node.get('@type') == 'Recipe' and 'recipeIngredient' in node:
-                            print(f"Info: Structured data (JSON-LD) found: {url}")
+                            logging.info(f"Structured data (JSON-LD) found: {url}")
                             return [ing for ing in node['recipeIngredient'] if ing.strip()]
 
                     # Check for Recipe schema at the main level
                     if isinstance(item, dict) and item.get('@type') == 'Recipe' and 'recipeIngredient' in item:
-                        print(f"Info: Structured data (JSON-LD) found: {url}")
+                        logging.info(f"Structured data (JSON-LD) found: {url}")
                         return [ing for ing in item['recipeIngredient'] if ing.strip()]
             except (json.JSONDecodeError, TypeError, AttributeError):
                 continue
@@ -138,7 +142,7 @@ def _find_ingredients_from_url(url: str) -> list[str] | None:
         if recipe_scope:
             ingredients_microdata = recipe_scope.find_all(itemprop='recipeIngredient')
             if ingredients_microdata:
-                 print(f"Info: Structured data (Microdata) found: {url}")
+                 logging.info(f"Structured data (Microdata) found: {url}")
                  return [item.get_text(strip=True) for item in ingredients_microdata if item.get_text(strip=True)]
 
         # Method 3: Heading and following list (Quite reliable)
@@ -148,7 +152,7 @@ def _find_ingredients_from_url(url: str) -> list[str] | None:
                 if sibling.name in ['ul', 'ol']:
                     items = sibling.find_all('li')
                     if len(items) > 1:
-                        print(f"Info: List found based on heading: {url}")
+                        logging.info(f"List found based on heading: {url}")
                         return [item.get_text(strip=True) for item in items if item.get_text(strip=True)]
                     break
                 if sibling.name and sibling.name.startswith('h'):
@@ -163,14 +167,14 @@ def _find_ingredients_from_url(url: str) -> list[str] | None:
                 for section in ingredient_sections:
                     items = section.find_all('li')
                     if len(items) > 1:
-                        print(f"Info: Possible ingredient list (CSS Selector) found: {url}")
+                        logging.info(f"Possible ingredient list (CSS Selector) found: {url}")
                         return [item.get_text(strip=True) for item in items if item.get_text(strip=True)]
         return None
     except requests.exceptions.RequestException as e:
-        print(f"Warning: Could not reach {url}: {e}")
+        logging.warning(f"Could not reach {url}: {e}")
         return None
     except Exception as e:
-        print(f"Warning: An error occurred while processing page '{url}': {e}")
+        logging.error(f"An error occurred while processing page '{url}': {e}", exc_info=True)
         return None
 
 @tool
@@ -186,16 +190,16 @@ def get_ingredients_for_dish(dish_name: str) -> list[dict]:
             translated_dish_name = dish_name.strip()
         cache_key = translated_dish_name.lower()
     except Exception as e:
-        print(f"Warning: Could not translate dish name '{dish_name}': {e}. Using original name.")
+        logging.warning(f"Could not translate dish name '{dish_name}': {e}. Using original name.")
         cache_key = dish_name.strip().lower()
 
     recipes_collection = _get_db_collection()
     db_ingredients = _get_recipe_from_db(recipes_collection, cache_key)
     if db_ingredients:
-        print(f"Info: '{cache_key}' found in database.")
+        logging.info(f"'{cache_key}' found in database.")
         return db_ingredients
 
-    print(f"Info: Searching internet for '{dish_name}' (as '{cache_key}') (not found in database)...")
+    logging.info(f"Searching internet for '{dish_name}' (as '{cache_key}') (not found in database)...")
 
     try:
         with DDGS() as ddgs:
@@ -223,7 +227,7 @@ def get_ingredients_for_dish(dish_name: str) -> list[dict]:
                     # 3. Save the clean list to the database and return
                     _save_recipe_to_db(recipes_collection, cache_key, clean_ingredients)
                     
-                    print(f"Success: Found and processed ingredients for '{cache_key}'.")
+                    logging.info(f"Success: Found and processed ingredients for '{cache_key}'.")
                     return clean_ingredients
 
             # If the loop finishes and no result is found from any site
@@ -238,23 +242,19 @@ def get_price_info(item_name: str) -> dict:
     Searches for an item's price on major online grocery stores (Migros, CarrefourSA).
     Returns a dictionary with prices from each store.
     """
-    print(f"   -> Searching for price: {item_name}")
+    logging.info(f"Searching for price: {item_name}")
     prices = {}
 
     # --- Enhanced Cleaning Logic ---
     # Removes known units and numeric expressions to leave only the product name.
     # Example: "1.0 medium Onion" -> "Onion"
     # Example: "200.0 g ground beef" -> "ground beef"
-    temp_name = item_name.lower()
-    # 1. Remove numbers and dots from the beginning
-    temp_name = re.sub(r'^[0-9\s.-]+', '', temp_name).strip()
-    # 2. Remove known units (and their plurals)
-    units_to_remove = ['cup', 'tablespoon', 'tbsp', 'teaspoon', 'tsp', 'ounce', 'oz', 'gram', 'g', 'kg', 'kilogram', 'pound', 'lb', 'clove', 'can', 'medium', 'large', 'small', 'piece']
-    for unit in units_to_remove:
-        # Remove singular and plural forms of the unit (with 's') along with a space
-        temp_name = re.sub(r'^\b' + re.escape(unit) + r's?\b\s*', '', temp_name)
-    
-    clean_item_name = temp_name.strip()
+    # 1. Remove numbers, dots, and leading/trailing whitespace
+    clean_item_name = re.sub(r'^[0-9\s.-]+', '', item_name.lower()).strip()
+    # 2. Compile a regex to remove known units (and their plurals) from the beginning of the string
+    units_pattern = r'^(?:cup|tablespoon|tbsp|teaspoon|tsp|ounce|oz|gram|g|kg|kilogram|pound|lb|clove|can|medium|large|small|piece)s?\b\s*'
+    clean_item_name = re.sub(units_pattern, '', clean_item_name, flags=re.IGNORECASE).strip()
+
     if not clean_item_name:
         clean_item_name = item_name  # If cleaning fails, use the original name
 
@@ -299,6 +299,6 @@ def get_price_info(item_name: str) -> dict:
                         break
                 prices[store_name] = price_text
             except Exception as e:
-                print(f"      ! Error while getting price from {store_name}: {e}")
+                logging.error(f"Error while getting price from {store_name} for item '{item_name}': {e}", exc_info=True)
                 prices[store_name] = "Error"
     return prices
