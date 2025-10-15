@@ -59,11 +59,17 @@ class OrchestratorAgent:
     The orchestrator agent that understands user intent, gets meal ideas if needed,
     and runs a workflow using LangChain chains and tools to find ingredients.
     """
-    def __init__(self, model='gemma3'):
+    def __init__(self, model='gemma3', fallback_model='gemma:2b'):
         try:
-            # Use ChatOllama for conversational models
-            self.llm = ChatOllama(model=model)
-            self.llm.invoke("Test connection") # Check for Ollama service
+            # --- LLM Setup with Fallback ---
+            # Primary LLM
+            primary_llm = ChatOllama(model=model)
+            # Fallback LLM to be used if the primary one fails
+            fallback_llm = ChatOllama(model=fallback_model)
+            
+            # Create a new LLM instance that automatically uses the fallback if the primary fails.
+            self.llm = primary_llm.with_fallbacks([fallback_llm])
+            self.llm.invoke("Test connection to LLM service") # Check for Ollama service
         except Exception as e:
             print(f"Error: Could not connect to the Ollama service. Is it running? Details: {e}")
             sys.exit(1)
@@ -120,7 +126,7 @@ Strictly follow these rules:
         )
         # The orchestrator holds instances of the specialized chains it needs.
         self.dish_identifier_chain = dish_identifier_prompt | self.llm | StrOutputParser()
-        print("Recipe Assistant (LangChain Edition) started. How can I help you?")
+        print("Recipe Assistant started. How can I help you?")
 
         # --- Create Ingredient Extractor from Prompt Chain ---
         ingredient_extractor_prompt = ChatPromptTemplate.from_messages(

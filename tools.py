@@ -22,7 +22,10 @@ load_dotenv()
 # --- Global Setup for Efficiency ---
 # Create LLM instances and chains once to be reused by tools.
 # This is more efficient than creating them on every tool call.
-_LLM_TEXT_PARSER = ChatOllama(model='gemma3')
+PRIMARY_LLM_PARSER = ChatOllama(model='gemma3')
+FALLBACK_LLM_PARSER = ChatOllama(model='gemma:2b')
+# Create an LLM with a fallback mechanism for parsing tasks.
+_LLM_TEXT_PARSER = PRIMARY_LLM_PARSER.with_fallbacks([FALLBACK_LLM_PARSER])
 
 def _get_ingredient_extractor_chain():
     """Creates a LangChain chain to extract clean ingredient names from a block of text."""
